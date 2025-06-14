@@ -1,10 +1,45 @@
-
+# Data and logs
 Data/
 logs/
+real/
 
-VanillaVAE/version_0/
-
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter Notebook
 .ipynb_checkpoints/
+*.ipynb
+
+# Project specific
+VanillaVAE/version_0/
+evaluation.log
+evaluation_results.txt
+result.jpg
 
 Run.ipynb

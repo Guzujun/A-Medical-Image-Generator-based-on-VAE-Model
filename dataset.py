@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import CelebA
 import zipfile
+import PIL.Image as Image
 
 
 # Add your custom dataset class here
@@ -63,6 +64,38 @@ class OxfordPets(Dataset):
         
         return img, 0.0 # dummy datat to prevent breaking 
 
+class ChestXrayDataset(Dataset):
+    """
+    Dataset class for Chest X-ray images
+    """
+    def __init__(self, 
+                 data_path: str, 
+                 split: str,
+                 transform: Callable,
+                 **kwargs):
+        self.data_dir = Path(data_path) / split
+        self.transforms = transform
+        
+        # 获取所有图像文件
+        self.imgs = []
+        for category in ['NORMAL', 'PNEUMONIA']:
+            category_path = self.data_dir / category
+            if category_path.exists():
+                self.imgs.extend([f for f in category_path.iterdir() if f.suffix.lower() in ['.jpeg', '.jpg', '.png']])
+    
+    def __len__(self):
+        return len(self.imgs)
+    
+    def __getitem__(self, idx):
+        img_path = self.imgs[idx]
+        # 使用PIL加载图像并转换为灰度
+        img = Image.open(img_path).convert('L')
+        
+        if self.transforms is not None:
+            img = self.transforms(img)
+        
+        return img, 0.0  # 0.0是dummy label，VAE不需要标签
+
 class VAEDataset(LightningDataModule):
     """
     PyTorch Lightning data module 
@@ -98,60 +131,44 @@ class VAEDataset(LightningDataModule):
         self.pin_memory = pin_memory
 
     def setup(self, stage: Optional[str] = None) -> None:
-#       =========================  OxfordPets Dataset  =========================
-            
-#         train_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
-#                                               transforms.CenterCrop(self.patch_size),
-# #                                               transforms.Resize(self.patch_size),
-#                                               transforms.ToTensor(),
-#                                                 transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
+        # 定义数据转换
+        train_transforms = transforms.Compose([
+            transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
         
-#         val_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
-#                                             transforms.CenterCrop(self.patch_size),
-# #                                             transforms.Resize(self.patch_size),
-#                                             transforms.ToTensor(),
-#                                               transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
+        eval_transforms = transforms.Compose([
+            transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
 
-#         self.train_dataset = OxfordPets(
-#             self.data_dir,
-#             split='train',
-#             transform=train_transforms,
-#         )
-        
-#         self.val_dataset = OxfordPets(
-#             self.data_dir,
-#             split='val',
-#             transform=val_transforms,
-#         )
-        
-#       =========================  CelebA Dataset  =========================
-    
-        train_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
-                                              transforms.CenterCrop(148),
-                                              transforms.Resize(self.patch_size),
-                                              transforms.ToTensor(),])
-        
-        val_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
-                                            transforms.CenterCrop(148),
-                                            transforms.Resize(self.patch_size),
-                                            transforms.ToTensor(),])
-        
-        self.train_dataset = MyCelebA(
+        # 创建训练集、验证集和测试集
+        self.train_dataset = ChestXrayDataset(
             self.data_dir,
             split='train',
             transform=train_transforms,
-            download=False,
         )
         
-        # Replace CelebA with your dataset
-        self.val_dataset = MyCelebA(
+        self.val_dataset = ChestXrayDataset(
+            self.data_dir,
+            split='val',
+            transform=eval_transforms,
+        )
+        
+        self.test_dataset = ChestXrayDataset(
             self.data_dir,
             split='test',
-            transform=val_transforms,
-            download=False,
+            transform=eval_transforms,
         )
-#       ===============================================================
         
+        # 打印数据集大小信息
+        print(f"Dataset sizes:")
+        print(f"Train: {len(self.train_dataset)}")
+        print(f"Val: {len(self.val_dataset)}")
+        print(f"Test: {len(self.test_dataset)}")
+
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_dataset,
@@ -159,6 +176,7 @@ class VAEDataset(LightningDataModule):
             num_workers=self.num_workers,
             shuffle=True,
             pin_memory=self.pin_memory,
+            persistent_workers=True if self.num_workers > 0 else False
         )
 
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
@@ -168,14 +186,16 @@ class VAEDataset(LightningDataModule):
             num_workers=self.num_workers,
             shuffle=False,
             pin_memory=self.pin_memory,
+            persistent_workers=True if self.num_workers > 0 else False
         )
     
     def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
         return DataLoader(
-            self.val_dataset,
-            batch_size=144,
+            self.test_dataset,  # 使用测试集而不是验证集
+            batch_size=self.val_batch_size,  # 使用相同的batch_size
             num_workers=self.num_workers,
-            shuffle=True,
+            shuffle=False,  # 评估时不需要shuffle
             pin_memory=self.pin_memory,
+            persistent_workers=True if self.num_workers > 0 else False
         )
      

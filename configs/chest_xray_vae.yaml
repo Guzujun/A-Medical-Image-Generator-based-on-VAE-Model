@@ -1,0 +1,29 @@
+model_params:
+  name: 'VanillaVAE'
+  in_channels: 1  # 灰度图像
+  latent_dim: 256  # 增加潜在空间维度
+  input_size: 64 # 保持64x64
+
+data_params:
+  data_path: "Data/chest_xray/"
+  train_batch_size: 64  # 增加batch size以提供更稳定的梯度
+  val_batch_size: 64
+  patch_size: 64
+  num_workers: 16
+  pin_memory: true
+
+exp_params:
+  LR: 0.001  # 降低学习率
+  weight_decay: 0.00005  # 减小权重衰减
+  scheduler_gamma: 0.98  # 更平缓的学习率衰减
+  kld_weight: 0.0001  # 减小KLD权重，让模型更关注重建质量
+  manual_seed: 1265
+
+trainer_params:
+  accelerator: "gpu"
+  devices: [0]
+  max_epochs: 200  # 增加训练轮数
+
+logging_params:
+  save_dir: "logs/"
+  name: "ChestXrayVAE_v2"  # 新的实验名称 

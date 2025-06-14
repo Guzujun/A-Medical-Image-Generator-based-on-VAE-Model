@@ -11,11 +11,18 @@ class VanillaVAE(BaseVAE):
     def __init__(self,
                  in_channels: int,
                  latent_dim: int,
+                 input_size: int = 256,  # 添加输入尺寸参数，默认256
                  hidden_dims: List = None,
                  **kwargs) -> None:
         super(VanillaVAE, self).__init__()
 
         self.latent_dim = latent_dim
+        self.input_size = input_size
+        
+        # 动态计算特征图大小
+        # 每次下采样(stride=2)会将尺寸减半
+        # 对于5次下采样: input_size -> input_size/2 -> input_size/4 -> input_size/8 -> input_size/16 -> input_size/32
+        self.feature_size = input_size // (2 ** 5)  # 5次下采样
 
         modules = []
         if hidden_dims is None:
@@ -33,14 +40,12 @@ class VanillaVAE(BaseVAE):
             in_channels = h_dim
 
         self.encoder = nn.Sequential(*modules)
-        self.fc_mu = nn.Linear(hidden_dims[-1]*4, latent_dim)
-        self.fc_var = nn.Linear(hidden_dims[-1]*4, latent_dim)
-
+        self.fc_mu = nn.Linear(hidden_dims[-1] * self.feature_size * self.feature_size, latent_dim)
+        self.fc_var = nn.Linear(hidden_dims[-1] * self.feature_size * self.feature_size, latent_dim)
 
         # Build Decoder
         modules = []
-
-        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1] * 4)
+        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1] * self.feature_size * self.feature_size)
 
         hidden_dims.reverse()
 
@@ -57,8 +62,6 @@ class VanillaVAE(BaseVAE):
                     nn.LeakyReLU())
             )
 
-
-
         self.decoder = nn.Sequential(*modules)
 
         self.final_layer = nn.Sequential(
@@ -70,7 +73,7 @@ class VanillaVAE(BaseVAE):
                                                output_padding=1),
                             nn.BatchNorm2d(hidden_dims[-1]),
                             nn.LeakyReLU(),
-                            nn.Conv2d(hidden_dims[-1], out_channels= 3,
+                            nn.Conv2d(hidden_dims[-1], out_channels=1,
                                       kernel_size= 3, padding= 1),
                             nn.Tanh())
 
@@ -99,7 +102,7 @@ class VanillaVAE(BaseVAE):
         :return: (Tensor) [B x C x H x W]
         """
         result = self.decoder_input(z)
-        result = result.view(-1, 512, 2, 2)
+        result = result.view(-1, 512, self.feature_size, self.feature_size)
         result = self.decoder(result)
         result = self.final_layer(result)
         return result
@@ -127,23 +130,22 @@ class VanillaVAE(BaseVAE):
         """
         Computes the VAE loss function.
         KL(N(\mu, \sigma), N(0, 1)) = \log \frac{1}{\sigma} + \frac{\sigma^2 + \mu^2}{2} - \frac{1}{2}
-        :param args:
-        :param kwargs:
-        :return:
+        :param args: [recons, input, mu, log_var]
+        :param kwargs: M_N: KLD weight
+        :return: {'loss': loss, 'Reconstruction_Loss': recons_loss, 'KLD': kld_loss}
         """
         recons = args[0]
         input = args[1]
         mu = args[2]
         log_var = args[3]
 
-        kld_weight = kwargs['M_N'] # Account for the minibatch samples from the dataset
-        recons_loss =F.mse_loss(recons, input)
-
+        kld_weight = kwargs['M_N']  # Account for the minibatch samples from the dataset
+        recons_loss = F.mse_loss(recons, input)
 
         kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
 
         loss = recons_loss + kld_weight * kld_loss
-        return {'loss': loss, 'Reconstruction_Loss':recons_loss.detach(), 'KLD':-kld_loss.detach()}
+        return {'loss': loss, 'Reconstruction_Loss': recons_loss.detach(), 'KLD': -kld_loss.detach()}
 
     def sample(self,
                num_samples:int,
